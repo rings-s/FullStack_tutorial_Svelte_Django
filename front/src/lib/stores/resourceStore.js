@@ -1,3 +1,6 @@
+// File: /src/lib/stores/resourceStore.js
+
+import { writable, derived } from 'svelte/store';
 import {
 	fetchResources as apiFetchResources,
 	createResource as apiCreateResource,
@@ -5,202 +8,175 @@ import {
 	deleteResource as apiDeleteResource,
 	uploadResourceImage as apiUploadImage,
 	deleteResourceImage as apiDeleteImage
-} from '$lib/services/api'; // Import API service functions
+} from '$lib/services/api';
 
-// --- Svelte 5 State Management using Runes ---
+// Create the base stores
+const _resources = writable([]);
+const _isLoading = writable(false);
+const _error = writable(null);
 
-// $state for reactive primitive or object
-let resources = $state([]); // Holds the list of resources
-let isLoading = $state(false); // Tracks loading state for fetching resources
-let error = $state(null); // Holds any API error message
+// Create derived store for resource count
+const resourceCount = derived(_resources, ($resources) => $resources.length);
 
-// $derived for computed state based on other reactive variables
-let resourceCount = $derived(resources.length);
+// Create the store interface
+function createResourceStore() {
+	// Helper function to access store value
+	const getStoreValue = (store) => {
+		let value;
+		store.subscribe(($) => (value = $))();
+		return value;
+	};
 
-// --- Store Actions ---
+	return {
+		// Subscribe methods for reactive access in components
+		subscribe: _resources.subscribe,
+		isLoading: { subscribe: _isLoading.subscribe },
+		error: { subscribe: _error.subscribe },
+		resourceCount: { subscribe: resourceCount.subscribe },
 
-/**
- * Fetches resources from the backend API and updates the store state.
- */
-async function fetchResources() {
-	isLoading = true;
-	error = null;
-	try {
-		const data = await apiFetchResources();
-		// Sort resources, e.g., by creation date descending
-		resources = data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-	} catch (err) {
-		console.error('Failed to fetch resources:', err);
-		error = err.data?.message || err.message || 'Failed to load resources.';
-		resources = []; // Clear resources on error
-	} finally {
-		isLoading = false;
-	}
-}
-
-/**
- * Adds a new resource via the API and updates the store.
- * @param {object} resourceData - { title, description, tags }
- * @param {File|null} file - Optional file to upload.
- */
-async function addResource(resourceData, file = null) {
-	isLoading = true; // Indicate loading for the add operation
-	error = null;
-	try {
-		const newResource = await apiCreateResource(resourceData, file);
-		// Add the new resource to the beginning of the list (or sort again)
-		resources = [newResource, ...resources];
-	} catch (err) {
-		console.error('Failed to add resource:', err);
-		error = err.data?.detail || err.data?.message || err.message || 'Failed to add resource.';
-		// Re-throw the error if the component needs to react to the specific failure
-		throw err;
-	} finally {
-		isLoading = false;
-	}
-}
-
-/**
- * Updates an existing resource in the store and via the API.
- * @param {number|string} id - ID of the resource to update.
- * @param {object} updatedData - Fields to update { title?, description?, tags? }
- * @param {File|null|undefined} file - Optional new file.
- */
-async function updateResource(id, updatedData, file = undefined) {
-	isLoading = true; // Indicate loading for the update operation
-	error = null;
-	try {
-		const updatedResource = await apiUpdateResource(id, updatedData, file);
-		// Find the index of the resource and replace it
-		const index = resources.findIndex((r) => r.id === id);
-		if (index !== -1) {
-			// Create a new array with the updated resource
-			const newResources = [...resources];
-			newResources[index] = updatedResource;
-			resources = newResources;
-		}
-	} catch (err) {
-		console.error('Failed to update resource:', err);
-		error = err.data?.detail || err.data?.message || err.message || 'Failed to update resource.';
-		throw err; // Re-throw for component handling
-	} finally {
-		isLoading = false;
-	}
-}
-
-/**
- * Deletes a resource from the store and via the API.
- * @param {number|string} id - ID of the resource to delete.
- */
-async function removeResource(id) {
-	isLoading = true; // Indicate loading for the delete operation
-	error = null;
-	try {
-		await apiDeleteResource(id);
-		// Filter out the deleted resource from the list
-		resources = resources.filter((r) => r.id !== id);
-	} catch (err) {
-		console.error('Failed to delete resource:', err);
-		error = err.data?.message || err.message || 'Failed to delete resource.';
-		throw err; // Re-throw for component handling
-	} finally {
-		isLoading = false;
-	}
-}
-
-/**
- * Uploads an image for a resource and updates that resource in the store.
- * @param {number|string} resourceId
- * @param {File} imageFile
- * @param {string} [caption='']
- */
-async function addResourceImage(resourceId, imageFile, caption = '') {
-	// We might want a specific loading state for image uploads per resource
-	// For simplicity here, we'll just log errors.
-	error = null;
-	try {
-		const newImage = await apiUploadImage(resourceId, imageFile, caption);
-		// Find the resource and add the new image to its 'images' array
-		const index = resources.findIndex((r) => r.id === resourceId);
-		if (index !== -1) {
-			const updatedResource = { ...resources[index] };
-			// Ensure the images array exists
-			if (!updatedResource.images) {
-				updatedResource.images = [];
+		// Action: Fetch all resources
+		fetchResources: async () => {
+			_isLoading.set(true);
+			_error.set(null);
+			try {
+				const data = await apiFetchResources();
+				_resources.set(data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+			} catch (err) {
+				console.error('Failed to fetch resources:', err);
+				_error.set(err.data?.message || err.message || 'Failed to load resources.');
+				_resources.set([]);
+			} finally {
+				_isLoading.set(false);
 			}
-			updatedResource.images = [...updatedResource.images, newImage];
+		},
 
-			// Update the main resources array
-			const newResources = [...resources];
-			newResources[index] = updatedResource;
-			resources = newResources;
-		}
-	} catch (err) {
-		console.error(`Failed to upload image for resource ${resourceId}:`, err);
-		error = err.data?.message || err.message || 'Failed to upload image.';
-		// Potentially display this error more specifically in the UI
-	}
-}
-
-/**
- * Deletes an image associated with a resource and updates the store.
- * @param {number|string} resourceId - ID of the parent resource.
- * @param {number|string} imageId - ID of the image to delete.
- */
-async function removeResourceImage(resourceId, imageId) {
-	error = null;
-	try {
-		await apiDeleteImage(imageId);
-		// Find the resource and remove the image from its 'images' array
-		const resourceIndex = resources.findIndex((r) => r.id === resourceId);
-		if (resourceIndex !== -1) {
-			const updatedResource = { ...resources[resourceIndex] };
-			if (updatedResource.images) {
-				updatedResource.images = updatedResource.images.filter((img) => img.id !== imageId);
-
-				// Update the main resources array
-				const newResources = [...resources];
-				newResources[resourceIndex] = updatedResource;
-				resources = newResources;
+		// Action: Add a new resource
+		addResource: async (resourceData, file = null) => {
+			_isLoading.set(true);
+			_error.set(null);
+			try {
+				const newResource = await apiCreateResource(resourceData, file);
+				_resources.update((items) => [newResource, ...items]);
+				return newResource;
+			} catch (err) {
+				console.error('Failed to add resource:', err);
+				_error.set(
+					err.data?.detail || err.data?.message || err.message || 'Failed to add resource.'
+				);
+				throw err;
+			} finally {
+				_isLoading.set(false);
 			}
-		}
-	} catch (err) {
-		console.error(`Failed to delete image ${imageId}:`, err);
-		error = err.data?.message || err.message || 'Failed to delete image.';
-		// Potentially display this error more specifically in the UI
-	}
+		},
+
+		// Action: Update existing resource
+		updateResource: async (id, updatedData, file = undefined) => {
+			_isLoading.set(true);
+			_error.set(null);
+			try {
+				const updatedResource = await apiUpdateResource(id, updatedData, file);
+				_resources.update((items) => {
+					const index = items.findIndex((r) => r.id === id);
+					if (index !== -1) {
+						const newItems = [...items];
+						newItems[index] = updatedResource;
+						return newItems;
+					}
+					return items;
+				});
+				return updatedResource;
+			} catch (err) {
+				console.error('Failed to update resource:', err);
+				_error.set(
+					err.data?.detail || err.data?.message || err.message || 'Failed to update resource.'
+				);
+				throw err;
+			} finally {
+				_isLoading.set(false);
+			}
+		},
+
+		// Action: Remove a resource
+		removeResource: async (id) => {
+			_isLoading.set(true);
+			_error.set(null);
+			try {
+				await apiDeleteResource(id);
+				_resources.update((items) => items.filter((r) => r.id !== id));
+			} catch (err) {
+				console.error('Failed to delete resource:', err);
+				_error.set(err.data?.message || err.message || 'Failed to delete resource.');
+				throw err;
+			} finally {
+				_isLoading.set(false);
+			}
+		},
+
+		// Action: Add image to a resource
+		addResourceImage: async (resourceId, imageFile, caption = '') => {
+			_error.set(null);
+			try {
+				const newImage = await apiUploadImage(resourceId, imageFile, caption);
+				_resources.update((items) => {
+					const index = items.findIndex((r) => r.id === resourceId);
+					if (index !== -1) {
+						const updatedResource = { ...items[index] };
+						if (!updatedResource.images) {
+							updatedResource.images = [];
+						}
+						updatedResource.images = [...updatedResource.images, newImage];
+
+						const newItems = [...items];
+						newItems[index] = updatedResource;
+						return newItems;
+					}
+					return items;
+				});
+				return newImage;
+			} catch (err) {
+				console.error(`Failed to upload image for resource ${resourceId}:`, err);
+				_error.set(err.data?.message || err.message || 'Failed to upload image.');
+				throw err;
+			}
+		},
+
+		// Action: Remove image from a resource
+		removeResourceImage: async (resourceId, imageId) => {
+			_error.set(null);
+			try {
+				await apiDeleteImage(imageId);
+				_resources.update((items) => {
+					const resourceIndex = items.findIndex((r) => r.id === resourceId);
+					if (resourceIndex !== -1 && items[resourceIndex].images) {
+						const updatedResource = { ...items[resourceIndex] };
+						updatedResource.images = updatedResource.images.filter((img) => img.id !== imageId);
+
+						const newItems = [...items];
+						newItems[resourceIndex] = updatedResource;
+						return newItems;
+					}
+					return items;
+				});
+			} catch (err) {
+				console.error(`Failed to delete image ${imageId}:`, err);
+				_error.set(err.data?.message || err.message || 'Failed to delete image.');
+				throw err;
+			}
+		},
+
+		// Helper function to get a resource by ID
+		getResourceById: (id) => {
+			const resources = getStoreValue(_resources);
+			return resources.find((r) => r.id === id);
+		},
+
+		// Method to clear error
+		clearError: () => _error.set(null)
+	};
 }
 
-// --- Export Store State and Actions ---
-// We export the reactive variables directly for use in components,
-// along with the functions to modify the state.
-export const resourceStore = {
-	// Reactive state (read-only view for components)
-	get resources() {
-		return resources;
-	},
-	get isLoading() {
-		return isLoading;
-	},
-	get error() {
-		return error;
-	},
-	get resourceCount() {
-		return resourceCount;
-	},
-
-	// Actions (functions to interact with the store/API)
-	fetchResources,
-	addResource,
-	updateResource,
-	removeResource,
-	addResourceImage,
-	removeResourceImage,
-
-	// Function to get a specific resource by ID from the current state
-	getResourceById: (id) => resources.find((r) => r.id === id)
-};
-
+// Create and export the store
+export const resourceStore = createResourceStore();
 /*
     --- Store Explanation & Tips ---
 

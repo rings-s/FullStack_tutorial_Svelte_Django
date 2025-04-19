@@ -1,112 +1,73 @@
 <script>
 	import { resourceStore } from '$lib/stores/resourceStore.js';
 
-	// --- Props ---
-	/** @type {import('./types').Resource | null} */ // Optional JSDoc type hint
-	export let resource = null; // Existing resource data for editing, or null for creating.
-	export let onclose = () => {}; // Callback to close/hide the form.
+	// Props
+	export let resource = null;
+	export let onclose = () => {};
 
-	// --- State ---
-	// Reactive object holding the form field values.
-	let formData = $state({
+	// Local state
+	let formData = {
 		title: '',
 		description: '',
-		tags: '' // Tags are handled as a single comma-separated string in the input field.
-	});
-	// Holds the File object selected by the user for the main resource file (resource_file).
-	let selectedFile = $state(null);
-	// Tracks if the form is currently submitting to the API (disables inputs/buttons).
-	let isSubmitting = $state(false);
-	// Stores any error message specific to this form submission.
-	let formError = $state(null);
+		tags: ''
+	};
+	let selectedFile = null;
+	let isSubmitting = false;
+	let formError = null;
 
-	// --- Initialization and Reactivity ---
-	// This effect runs whenever the 'resource' prop changes. It initializes or resets
-	// the form fields based on whether we are creating or editing.
-	$effect(() => {
-		if (resource && resource.id) {
-			// EDIT MODE: Populate form with existing resource data.
-			formData.title = resource.title || '';
-			formData.description = resource.description || '';
-			// Use the raw 'tags' string from the resource for the input field.
-			formData.tags = resource.tags || '';
-			// Reset file input; user must re-select if they want to replace the file.
-			selectedFile = null;
-		} else {
-			// CREATE MODE: Reset form fields to empty.
-			formData.title = '';
-			formData.description = '';
-			formData.tags = '';
-			selectedFile = null;
-		}
-		// Clear any previous form errors and reset submission state when mode changes.
-		formError = null;
-		isSubmitting = false;
+	// Initialize form when resource changes
+	$: if (resource && resource.id) {
+		// EDIT MODE
+		formData.title = resource.title || '';
+		formData.description = resource.description || '';
+		formData.tags = resource.tags || '';
+		selectedFile = null;
+	} else if (!resource) {
+		// CREATE MODE
+		formData.title = '';
+		formData.description = '';
+		formData.tags = '';
+		selectedFile = null;
+	}
 
-		// If the form includes a file input element, reset it visually.
-		// Note: Programmatically clearing file inputs can be tricky and might require
-		// accessing the DOM element directly if the simple state reset isn't enough.
-		const fileInput = document.getElementById('resource_file');
-		if (fileInput) {
-			fileInput.value = ''; // Attempt to reset the file input display
-		}
-	});
-
-	// --- Event Handlers ---
-	/**
-	 * Handles changes to the file input field.
-	 * Updates the `selectedFile` state with the chosen File object.
-	 * @param {Event} event - The input change event.
-	 */
+	// File input change handler
 	function handleFileChange(event) {
 		const files = event.target.files;
 		if (files && files.length > 0) {
-			selectedFile = files[0]; // Store the File object
+			selectedFile = files[0];
 		} else {
-			selectedFile = null; // Clear if no file is selected
+			selectedFile = null;
 		}
 	}
 
-	/**
-	 * Handles the form submission.
-	 * Determines whether to call the 'add' or 'update' action in the store.
-	 * Manages loading state and displays errors locally.
-	 */
+	// Form submission handler
 	async function handleSubmit() {
 		isSubmitting = true;
-		formError = null; // Clear previous errors
+		formError = null;
 
 		try {
 			if (resource && resource.id) {
-				// --- UPDATE Resource (PATCH request) ---
+				// UPDATE
 				const updateData = {
-					// Include all fields that can be updated
 					title: formData.title,
 					description: formData.description,
-					tags: formData.tags // Send the comma-separated string
+					tags: formData.tags
 				};
-				// The `updateResource` store action expects the resource ID, the data payload,
-				// and the File object (or undefined/null if not changing the file).
 				await resourceStore.updateResource(resource.id, updateData, selectedFile);
 				console.log('Resource updated successfully via form.');
 			} else {
-				// --- CREATE Resource (POST request) ---
+				// CREATE
 				const createData = {
 					title: formData.title,
 					description: formData.description,
-					tags: formData.tags // Send the comma-separated string
+					tags: formData.tags
 				};
-				// The `addResource` store action expects the data payload and the File object.
 				await resourceStore.addResource(createData, selectedFile);
 				console.log('Resource added successfully via form.');
 			}
-			// If API call succeeds, call the onclose callback to hide the form.
 			onclose();
 		} catch (err) {
-			// Handle errors from the API call (validation errors, server errors, etc.)
 			console.error('Resource form submission failed:', err);
-			// Attempt to extract and display meaningful error messages.
-			// This structure assumes DRF validation errors might be in err.data object.
 			if (err.data && typeof err.data === 'object') {
 				formError = Object.entries(err.data)
 					.map(
@@ -115,18 +76,16 @@
 					)
 					.join('; ');
 			} else {
-				// Fallback to generic error message.
 				formError = err.message || 'An unexpected error occurred. Please try again.';
 			}
-			// Note: The global Notification component will also display the error set in the store.
 		} finally {
-			// Ensure loading state is turned off regardless of success or failure.
 			isSubmitting = false;
 		}
 	}
 </script>
 
-<form onsubmit|preventDefault={handleSubmit} class="space-y-4">
+<!-- The rest of your template remains the same -->
+<form on:submit|preventDefault={handleSubmit} class="space-y-4">
 	<h3 class="text-lg leading-6 font-medium text-gray-900">
 		{resource ? 'Edit Resource' : 'Add New Resource'}
 	</h3>
@@ -188,7 +147,7 @@
 		<input
 			type="file"
 			id="resource_file"
-			onchange={handleFileChange}
+			on:change={handleFileChange}
 			class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:rounded-md file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
 			disabled={isSubmitting}
 			aria-describedby="file-info"
@@ -198,12 +157,9 @@
 				<span>Selected: {selectedFile.name}</span>
 			{:else if resource && resource.resource_file_url}
 				<span>
-					Current file: <a
-						href={resource.resource_file_url}
-						target="_blank"
-						rel="noopener noreferrer"
-						class="text-blue-600 hover:underline">View/Download</a
-					>. Leave empty to keep it.
+					Current file: href={resource.resource_file_url}
+					target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">View/Download
+					. Leave empty to keep it.
 				</span>
 			{/if}
 		</div>
@@ -212,7 +168,7 @@
 	<div class="flex justify-end space-x-3 border-t border-gray-200 pt-4">
 		<button
 			type="button"
-			onclick={onclose}
+			on:click={onclose}
 			disabled={isSubmitting}
 			class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 		>

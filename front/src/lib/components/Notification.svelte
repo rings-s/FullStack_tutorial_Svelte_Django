@@ -1,51 +1,42 @@
 <script>
 	import { resourceStore } from '$lib/stores/resourceStore.js';
 
-	// --- State ---
-	// Reactive access to the error state from the store. $derived ensures this updates
-	// whenever resourceStore.error changes.
-	let currentError = $derived(resourceStore.error);
-	// Local state to control the visibility of the notification element.
-	let isVisible = $state(false);
-	// Local state to hold the message content to display.
-	let message = $state('');
+	// Local state
+	let isVisible = false;
+	let message = '';
+	let timerHandle = null;
 
-	// --- Effects ---
-	// This effect runs whenever 'currentError' (derived from the store) changes.
-	$effect(() => {
+	// Subscribe to the error store
+	const unsubscribe = resourceStore.error.subscribe((currentError) => {
 		if (currentError) {
-			// If there's an error message in the store:
-			message = currentError; // Set the local message state.
-			isVisible = true; // Make the notification visible.
+			message = currentError;
+			isVisible = true;
 
-			// Auto-hide functionality: Set a timer to hide the notification after 5 seconds.
-			const timer = setTimeout(() => {
+			// Clear any existing timer
+			if (timerHandle) clearTimeout(timerHandle);
+
+			// Auto-hide after 5 seconds
+			timerHandle = setTimeout(() => {
 				isVisible = false;
-				// Optional: Clear the error in the store once the notification hides automatically.
-				// This prevents the notification from reappearing if the component remounts
-				// unless a *new* error is set in the store.
-				// You would need to add a `clearError` function to resourceStore.js:
-				// Example in store: clearError: () => { error = null; }
+				// Optional: Clear the error in the store
 				// resourceStore.clearError();
-			}, 5000); // 5000 milliseconds = 5 seconds
-
-			// Cleanup function: This runs if the effect re-runs before the timer finishes
-			// (e.g., if a new error comes in quickly) or when the component is unmounted.
-			// It prevents the old timer from hiding the notification prematurely.
-			return () => clearTimeout(timer);
+			}, 5000);
 		} else {
-			// If there's no error in the store (currentError is null or empty):
-			isVisible = false; // Ensure the notification is hidden.
+			isVisible = false;
 		}
 	});
 
-	// --- Event Handlers ---
-	/**
-	 * Closes the notification manually when the close button is clicked.
-	 */
+	// Clean up subscription when component is destroyed
+	import { onDestroy } from 'svelte';
+	onDestroy(() => {
+		if (timerHandle) clearTimeout(timerHandle);
+		unsubscribe();
+	});
+
+	// Close notification manually
 	function closeNotification() {
 		isVisible = false;
-		// Optional: Immediately clear the error in the store upon manual dismissal.
+		// Optional: Clear the error in the store
 		// resourceStore.clearError();
 	}
 </script>
@@ -62,7 +53,7 @@
 				<span class="block sm:inline">{message}</span>
 			</div>
 			<button
-				onclick={closeNotification}
+				on:click={closeNotification}
 				class="-mt-1 -mr-1 ml-4 rounded-md p-1 text-red-500 hover:bg-red-200 focus:ring-2 focus:ring-red-400 focus:outline-none"
 				aria-label="Close Notification"
 			>
